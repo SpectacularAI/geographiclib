@@ -198,12 +198,6 @@ endif ()
 
 # Installation is to ${INCDIR}/GeographicLib
 set (INCDIR "include" CACHE STRING "Where to install header files")
-set (BINDIR "bin" CACHE STRING "Where to install tools")
-if (WIN32)
-  set (SBINDIR "" CACHE STRING "Where to install admin tools")
-else ()
-  set (SBINDIR "sbin" CACHE STRING "Where to install admin tools")
-endif ()
 if (CMAKE_INSTALL_LIBDIR)
   # If it's defined, use this GNUInstallDirs path to support lib, lib64,
   # and lib/<muliarch-tuple> variants
@@ -213,17 +207,10 @@ else ()
   set (LIBDIR "lib" CACHE STRING "Where to install libraries")
 endif ()
 set (DLLDIR "bin" CACHE STRING "Where to install dlls")
-# Installation is to ${MANDIR}/man1 and ${MANDIR}/man8
-set (MANDIR "share/man" CACHE STRING "Where to install the man pages")
 set (CMAKEDIR "lib/cmake/${PROJECT_NAME}"
   CACHE STRING "Where to install cmake configs")
-set (PKGDIR "lib/pkgconfig" CACHE STRING "Where to install package config")
-set (DOCDIR "share/doc/${PROJECT_NAME}"
-  CACHE STRING "Where to install documentation")
-set (EXAMPLEDIR "share/doc/${PROJECT_NAME}-dev"
-  CACHE STRING "Where to install examples")
 
-# The relative path to library directory from the bin directory
+  # The relative path to library directory from the bin directory
 if (LIBDIR AND BINDIR)
   file (RELATIVE_PATH RELATIVE_LIBDIR
     "${CMAKE_INSTALL_PREFIX}/${BINDIR}" "${CMAKE_INSTALL_PREFIX}/${LIBDIR}")
@@ -451,33 +438,12 @@ if (WIN32)
   set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
 endif ()
 
-# The list of tools (to be installed into, e.g., /usr/local/bin)
-set (TOOLS CartConvert ConicProj GeodesicProj GeoConvert GeodSolve
-  GeoidEval Gravity IntersectTool MagneticField Planimeter RhumbSolve
-  TransverseMercatorProj)
-# The list of scripts (to be installed into, e.g., /usr/local/sbin)
-set (SCRIPTS geographiclib-get-geoids geographiclib-get-gravity
-  geographiclib-get-magnetic)
-
 set_property (GLOBAL PROPERTY USE_FOLDERS ON)
 
 # The list of subdirectories to process
 add_subdirectory (src)
 add_subdirectory (include/GeographicLib)
-add_subdirectory (tools)
-add_subdirectory (man)
-add_subdirectory (doc)
-if (EXAMPLEDIR)
-  set (CALLED_FROM_TOPLEVEL ON)
-  add_subdirectory (examples)   # This just installs the examples
-endif ()
 add_subdirectory (cmake)
-enable_testing ()
-add_subdirectory (tests)
-add_subdirectory (experimental)
-if (NOT RELEASE)
-  add_subdirectory (develop)
-endif ()
 
 # make exampleprograms does a fresh cmake configuration and so uses
 # find_package to find the just-built version of GeographicLib (via the
@@ -485,14 +451,6 @@ endif ()
 if (CMAKE_GENERATOR_PLATFORM)
   set (PLATFORM_FLAG "-A")
 endif ()
-add_custom_target (exampleprograms
-  COMMAND ${CMAKE_COMMAND}
-  -G ${CMAKE_GENERATOR} ${PLATFORM_FLAG} ${CMAKE_GENERATOR_PLATFORM}
-  -B exampleprograms -S ${PROJECT_SOURCE_DIR}/examples
-  -D USE_BOOST_FOR_EXAMPLES=${USE_BOOST_FOR_EXAMPLES}
-  -D ${PROJECT_NAME}_DIR=${PROJECT_BINARY_DIR}
-  COMMAND ${CMAKE_COMMAND} --build exampleprograms --parallel 8)
-add_dependencies (exampleprograms ${PROJECT_LIBRARIES})
 
 # Packaging support; we deal with
 # (1) a source distribution: cmake make a tar.gz file and the zip file
