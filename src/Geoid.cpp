@@ -198,6 +198,32 @@ namespace GeographicLib {
      18,  -36,    2,   0,  -66,  -51, 0,   0,  102,  31,
   };
 
+  namespace {
+
+  struct MemoryBuffer : std::streambuf {
+    MemoryBuffer(const uint8_t* data, size_t size) {
+      char* p = const_cast<char*>(reinterpret_cast<const char*>(data));
+      setg(p, p, p + size);
+    }
+    pos_type seekoff(off_type off, std::ios_base::seekdir dir,
+                     std::ios_base::openmode which = std::ios_base::in) override {
+      if (!(which & std::ios_base::in)) return pos_type(off_type(-1));
+      char* newpos = nullptr;
+      if (dir == std::ios_base::beg) newpos = eback() + off;
+      else if (dir == std::ios_base::cur) newpos = gptr() + off;
+      else if (dir == std::ios_base::end) newpos = egptr() + off;
+      if (newpos < eback() || newpos > egptr()) return pos_type(off_type(-1));
+      setg(eback(), newpos, egptr());
+      return pos_type(newpos - eback());
+    }
+    pos_type seekpos(pos_type pos,
+                     std::ios_base::openmode which = std::ios_base::in) override {
+      return seekoff(off_type(pos), std::ios_base::beg, which);
+    }
+  };
+
+  } // anonymous namespace
+
   Geoid::Geoid(const std::string& name, const std::string& path, bool cubic,
                bool threadsafe)
     : _name(name)
@@ -216,15 +242,40 @@ namespace GeographicLib {
     _file.open(_filename.c_str(), ios::binary);
     if (!(_file.good()))
       throw GeographicErr("File not readable " + _filename);
+    init(_file, threadsafe);
+    if (threadsafe)
+      _file.close();
+  }
+
+  Geoid::Geoid(const std::vector<uint8_t>& data, bool cubic)
+    : _name("memory")
+    , _dir("")
+    , _filename("memory")
+    , _cubic(cubic)
+    , _a( Constants::WGS84_a() )
+    , _e2( (2 - Constants::WGS84_f()) * Constants::WGS84_f() )
+    , _degree( Math::degree() )
+    , _eps( sqrt(numeric_limits<real>::epsilon()) )
+    , _threadsafe(false)
+  {
+    static_assert(sizeof(pixel_t) == pixel_size_, "pixel_t has the wrong size");
+    if (data.empty())
+      throw GeographicErr("Empty geoid data");
+    MemoryBuffer buf(data.data(), data.size());
+    std::istream is(&buf);
+    init(is, true);
+  }
+
+  void Geoid::init(std::istream& file, bool threadsafe) {
     string s;
-    if (!(getline(_file, s) && s == "P5"))
+    if (!(getline(file, s) && s == "P5"))
       throw GeographicErr("File not in PGM format " + _filename);
     _offset = numeric_limits<real>::max();
     _scale = 0;
     _maxerror = _rmserror = -1;
     _description = "NONE";
     _datetime = "UNKNOWN";
-    while (getline(_file, s)) {
+    while (getline(file, s)) {
       if (s.empty())
         continue;
       if (s[0] == '#') {
@@ -259,12 +310,12 @@ namespace GeographicLib {
     }
     {
       unsigned maxval;
-      if (!(_file >> maxval))
+      if (!(file >> maxval))
         throw GeographicErr("Error reading maxval " + _filename);
       if (maxval != pixel_max_)
         throw GeographicErr("Incorrect value of maxval " + _filename);
       // Add 1 for whitespace after maxval
-      _datastart = (unsigned long long)(_file.tellg()) + 1ULL;
+      _datastart = (unsigned long long)(file.tellg()) + 1ULL;
       _swidth = (unsigned long long)(_width);
     }
     if (_offset == numeric_limits<real>::max())
@@ -282,10 +333,10 @@ namespace GeographicLib {
     if (!(_height & 1))
       // This is so that latitude grid includes the equator.
       throw GeographicErr("Raster height is even " + _filename);
-    _file.seekg(0, ios::end);
-    if (!_file.good() ||
+    file.seekg(0, ios::end);
+    if (!file.good() ||
         _datastart + pixel_size_ * _swidth * (unsigned long long)(_height) !=
-        (unsigned long long)(_file.tellg()))
+        (unsigned long long)(file.tellg()))
       // Possibly this test should be "<" because the file contains, e.g., a
       // second image.  However, for now we are more strict.
       throw GeographicErr("File has the wrong length " + _filename);
@@ -295,10 +346,9 @@ namespace GeographicLib {
     _ix = _width;
     _iy = _height;
     // Ensure that file errors throw exceptions
-    _file.exceptions(ifstream::eofbit | ifstream::failbit | ifstream::badbit);
+    file.exceptions(ifstream::eofbit | ifstream::failbit | ifstream::badbit);
     if (threadsafe) {
-      CacheAll();
-      _file.close();
+      CacheArea(file, real(-Math::qd), real(0), real(Math::qd), real(Math::td));
       _threadsafe = true;
     }
   }
@@ -406,6 +456,10 @@ namespace GeographicLib {
   }
 
   void Geoid::CacheArea(real south, real west, real north, real east) const {
+    CacheArea(_file, south, west, north, east);
+  }
+
+  void Geoid::CacheArea(std::istream& stream, real south, real west, real north, real east) const {
     if (_threadsafe)
       throw GeographicErr("Attempt to change cache of threadsafe Geoid");
     if (south > north) {
@@ -468,14 +522,14 @@ namespace GeographicLib {
             iw1 -= _width;
         }
         int xs1 = min(_width - iw1, _xsize);
-        filepos(iw1, iy1);
+        filepos(stream, iw1, iy1);
         Utility::readarray<pixel_t, pixel_t, true>
-          (_file, &(_data[iy - in][0]), xs1);
+          (stream, &(_data[iy - in][0]), xs1);
         if (xs1 < _xsize) {
           // Wrap around longitude = 0
-          filepos(0, iy1);
+          filepos(stream, 0, iy1);
           Utility::readarray<pixel_t, pixel_t, true>
-            (_file, &(_data[iy - in][xs1]), _xsize - xs1);
+            (stream, &(_data[iy - in][xs1]), _xsize - xs1);
         }
       }
       _cache = true;

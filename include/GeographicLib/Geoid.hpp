@@ -10,6 +10,7 @@
 #if !defined(GEOGRAPHICLIB_GEOID_HPP)
 #define GEOGRAPHICLIB_GEOID_HPP 1
 
+#include <cstdint>
 #include <vector>
 #include <fstream>
 #include <GeographicLib/Constants.hpp>
@@ -119,11 +120,16 @@ namespace GeographicLib {
     mutable int _ix, _iy;
     mutable real _v00, _v01, _v10, _v11;
     mutable real _t[nterms_];
-    void filepos(int ix, int iy) const {
-      _file.seekg(std::streamoff
-                  (_datastart +
-                   pixel_size_ * (unsigned(iy)*_swidth + unsigned(ix))));
+    void filepos(std::istream& is, int ix, int iy) const {
+      is.seekg(std::streamoff
+               (_datastart +
+                pixel_size_ * (unsigned(iy)*_swidth + unsigned(ix))));
     }
+    void filepos(int ix, int iy) const {
+      filepos(_file, ix, iy);
+    }
+    void init(std::istream& is, bool threadsafe);
+    void CacheArea(std::istream& is, real south, real west, real north, real east) const;
     real rawval(int ix, int iy) const {
       if (ix < 0)
         ix += _width;
@@ -219,6 +225,8 @@ namespace GeographicLib {
      **********************************************************************/
     explicit Geoid(const std::string& name, const std::string& path = "",
                    bool cubic = true, bool threadsafe = false);
+
+    explicit Geoid(const std::vector<uint8_t>& data, bool cubic = true);
 
     /**
      * Set up a cache.
